@@ -38,6 +38,12 @@ For a RAG application—one that searches company documents before answering—t
 
 I would also mention that each step needs logging, tracing, and time limits. That makes it possible to find where a slow or failed request went wrong. The key interview point is to start with the gateway and show the whole path, not jump straight to the model.
 
+### What can fail, how users are protected, and how cost is controlled
+
+- **What can fail:** Login checks, document search, a model provider, or an output check can be slow or unavailable. A very large prompt can also exceed a limit.
+- **How users are protected:** Give each step a time limit, show a clear error or a safe fallback when a dependency fails, and never return documents the user is not allowed to see. Include only citations that were actually retrieved.
+- **How cost is controlled:** Reject oversized requests early, reuse safe cached work, set a token budget for the prompt and answer, and avoid calling a model when a cheaper rule or cached result is enough.
+
 ---
 
 ## 2. How would you prevent a denial-of-wallet attack on an inference API?
@@ -62,6 +68,12 @@ I would also add:
 
 When a caller reaches a limit, the API should return a clear `429 Too Many Requests` response and say when to retry. If product rules allow it, the service might offer a smaller model or a shorter answer instead. The goal is to protect both availability and cost without surprising legitimate users.
 
+### What can fail, how users are protected, and how cost is controlled
+
+- **What can fail:** A limit can be configured too tightly, a customer's legitimate traffic can spike, or a retrying client can keep sending failed requests.
+- **How users are protected:** Use fair limits per user or organization rather than one global limit, return a useful retry time, and alert support teams before normal customers are blocked.
+- **How cost is controlled:** Enforce request, token, and spend caps before model calls; stop runaway retries; and use cheaper fallbacks only when they meet the product's quality rules.
+
 ---
 
 ## 3. Your embedding API receives the same queries repeatedly. How do you optimize it?
@@ -80,6 +92,12 @@ There are two useful kinds of caching:
 For a semantic cache, I would choose the similarity threshold using real evaluation data, not intuition. I would also keep customer or tenant information in the cache key. A result based on one customer's private data must never be returned to another customer.
 
 Useful metrics are cache-hit rate, saved cost, lower response time, and cases where a semantic match was not good enough.
+
+### What can fail, how users are protected, and how cost is controlled
+
+- **What can fail:** A cache can return an old result, a semantic match can be similar but still wrong, or an old embedding can remain after the model changes.
+- **How users are protected:** Keep private data separated in cache keys, set expiration times, test semantic-match thresholds, and fall back to a fresh calculation when confidence is too low.
+- **How cost is controlled:** Exact-match caching removes duplicate embedding calls, while carefully tested semantic caching can reduce more repeated work without lowering answer quality too far.
 
 ---
 
@@ -103,6 +121,12 @@ A queue separates the part that creates work from the part that does work. This 
 
 For very long documents, I would use hierarchical summarization: summarize each chunk, then summarize those smaller summaries. I would save progress after each step so the system can resume after a worker crash or provider outage. The workers can scale up when the queue grows and scale down when it is empty.
 
+### What can fail, how users are protected, and how cost is controlled
+
+- **What can fail:** A worker can crash, a model call can time out, the queue can grow faster than workers can process it, or a document can be processed twice after a retry.
+- **How users are protected:** Save job progress, show clear job status, use a dead-letter queue for repeated failures, and make each task safe to retry without producing duplicate results.
+- **How cost is controlled:** Set a worker-concurrency limit, scale workers from queue depth, process long documents in chunks, and stop or review jobs that repeatedly fail instead of retrying forever.
+
 ---
 
 ## 5. What happens when your vector database goes down in the middle of a query?
@@ -124,6 +148,12 @@ The fallback depends on how important the retrieved information is:
 - A model-only answer may be acceptable for some products, but it must say that no documents were retrieved. It must not invent citations.
 
 I would set short time limits, use only a few retries, monitor the dependency, and alert the team. The important point is to protect the rest of the system from a growing backlog of requests waiting on a service that is already down.
+
+### What can fail, how users are protected, and how cost is controlled
+
+- **What can fail:** The vector database may be down, slow, overloaded, or return incomplete results.
+- **How users are protected:** The circuit breaker produces a fast, honest fallback instead of a hanging page; permissions still apply to cached data; and the interface clearly says when no sources were retrieved.
+- **How cost is controlled:** Failing fast avoids paying for model calls built on missing context, prevents wasted retries, and stops waiting requests from using more connections and compute.
 
 ---
 
@@ -158,8 +188,15 @@ Other practical choices are:
 - Use a queue with backpressure when capacity is full.
 - Cancel work when the user disconnects.
 - Add warmed-up servers before expected demand peaks.
+- Use asynchronous programming for network calls and streaming so one waiting request does not block the server from handling other requests. Pair it with a **semaphore**, which is a simple counter that allows only a fixed number of expensive model calls to run at once. Async code improves throughput, but without a semaphore it can start too many model calls at the same time and overload GPUs, connection pools, or a provider's rate limit.
 
 The best answer makes clear that protecting the system during overload is part of normal design, not an afterthought.
+
+### What can fail, how users are protected, and how cost is controlled
+
+- **What can fail:** A GPU server can become unhealthy, queues can grow, a client can disconnect during streaming, or too many asynchronous tasks can start at once.
+- **How users are protected:** Health checks route around bad servers; queues and a semaphore keep the service responsive; users receive a clear delay or `429` response instead of a silent timeout; and disconnected work is cancelled where possible.
+- **How cost is controlled:** Load-aware routing uses existing capacity better, batching reduces wasted GPU time, the semaphore caps expensive parallel work, and cancellation stops generating tokens that nobody will read.
 
 ---
 
@@ -188,6 +225,12 @@ I would also control cost by:
 - Tracking cost by customer, request, input text, output text, and completed task.
 
 The cheapest setup is not always the best setup. If too few servers cause long queues, timeouts, and retries, the service becomes worse for users and may cost more overall.
+
+### What can fail, how users are protected, and how cost is controlled
+
+- **What can fail:** Scaling can happen too late, a newly started server may not be ready in time, or a metric can cause the system to scale up and down too often.
+- **How users are protected:** Keep a small warm baseline, start extra capacity before predictable peaks, and use safe scale-down delays so active requests are not interrupted.
+- **How cost is controlled:** Scale on GPU and queue signals, remove unused capacity after a stable quiet period, route suitable work to smaller models, and track cost so the team can see which customers and features drive spend.
 
 ---
 
